@@ -1,0 +1,6 @@
+{
+  "name": "ToolNova",
+  "description": "Powerful Tools. Smarter Work. The global all-in-one platform for AI writing, SEO, image manipulation, PDF workflows, and developer utilities.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
