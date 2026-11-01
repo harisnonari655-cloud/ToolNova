@@ -2,7 +2,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { GoogleGenAI, ThinkingLevel } from '@google/genai';
+import { buildAiPrompts, createGeminiClient, getApiKey, ThinkingLevel } from './api/_lib/gemini.ts';
 
 dotenv.config();
 
@@ -18,10 +18,13 @@ app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
 // Health / Status endpoint
 app.get('/api/status', (req, res) => {
+  const apiKey = getApiKey();
+  const hasGeminiKey = Boolean(apiKey && apiKey.length > 0);
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.json({
     status: 'online',
     appName: 'ToolNova',
-    hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
+    hasGeminiKey,
     supportedToolsCount: 30,
     timestamp: new Date().toISOString()
   });
@@ -127,62 +130,9 @@ app.get('/sitemap.xml', (req, res) => {
   res.send(xml);
 });
 
-// AI Writing Tools Helper & Models
-interface AiRequestOptions {
-  tone?: string;
-  language?: string;
-  speedMode?: 'turbo' | 'precision';
-  highThinking?: boolean;
-}
-
-function buildAiPrompts(toolId: string, input: string, options: AiRequestOptions) {
-  const tone = options.tone || 'Professional';
-  const language = options.language || 'English';
-
-  let systemInstruction = 'You are ToolNova AI, an ultra-fast precision writing engine. Provide direct, high quality results immediately without conversational meta-commentary, markdown preambles, or conversational greetings.';
-  let userPrompt = '';
-
-  switch (toolId) {
-    case 'ai-humanizer':
-      systemInstruction = 'You are an expert AI humanizer. Rewrite the provided text so that it reads completely natural, authentic, emotionally resonant, and genuinely human. Eliminate repetitive syntactic patterns, robotic clichés, buzzwords, and stiffness while preserving core meaning and factual accuracy. Output only the humanized text.';
-      userPrompt = `Rewrite the following text into natural, human-sounding ${language} with a ${tone} tone:\n\n${input}`;
-      break;
-
-    case 'ai-text-rewriter':
-      systemInstruction = 'You are a professional text rewriter and paraphraser. Rewrite the text to improve flow, vocabulary richness, clarity, and readability while fully preserving original meaning. Output only the rewritten text.';
-      userPrompt = `Paraphrase and rewrite the following text in ${language} with a ${tone} tone:\n\n${input}`;
-      break;
-
-    case 'ai-paragraph-generator':
-      systemInstruction = 'You are an engaging creative and technical paragraph generator. Produce a cohesive, well-structured paragraph on the given topic with smooth transitions. Output only the generated paragraph.';
-      userPrompt = `Write a well-crafted paragraph in ${language} with a ${tone} tone based on this topic/prompt:\n\n${input}`;
-      break;
-
-    case 'ai-email-writer':
-      systemInstruction = 'You are an executive communication specialist. Format the output with a clear Subject line, professional salutation, body, and closing sign-off. Output only the email.';
-      userPrompt = `Draft an email in ${language} with a ${tone} tone based on the following notes/request:\n\n${input}`;
-      break;
-
-    case 'ai-essay-writer':
-      systemInstruction = 'You are an academic and thought leadership essayist. Formulate a structured essay with an engaging introduction, thesis statement, evidence-backed body paragraphs, and a resonant conclusion. Output only the essay.';
-      userPrompt = `Write a comprehensive, structured essay in ${language} with a ${tone} tone on the following topic or outline:\n\n${input}`;
-      break;
-
-    case 'ai-text-summarizer':
-      systemInstruction = 'You are an executive summarization engine. Create a concise summary with a high-level takeaway followed by key bullet points. Output only the summary.';
-      userPrompt = `Summarize the following text in ${language}. Tone: ${tone}.\n\n${input}`;
-      break;
-
-    default:
-      userPrompt = `Process the following text in ${language} with a ${tone} tone:\n\n${input}`;
-  }
-
-  return { systemInstruction, userPrompt };
-}
-
 // Low-latency generator helper with automatic fallback & timeout protection
 async function executeGeminiWithFallback(
-  ai: GoogleGenAI,
+  ai: ReturnType<typeof createGeminiClient>,
   systemInstruction: string,
   userPrompt: string,
   speedMode: 'turbo' | 'precision' = 'turbo'
@@ -233,7 +183,7 @@ async function executeGeminiWithFallback(
 app.post('/api/ai/stream', async (req, res) => {
   const startTime = Date.now();
   try {
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = getApiKey();
     if (!apiKey) {
       return res.status(503).json({
         error: 'MISSING_API_KEY',
@@ -249,14 +199,7 @@ app.post('/api/ai/stream', async (req, res) => {
       });
     }
 
-    const ai = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build'
-        }
-      }
-    });
+    const ai = createGeminiClient(apiKey);
 
     const speedMode: 'turbo' | 'precision' = options.speedMode || 'turbo';
     const { systemInstruction, userPrompt } = buildAiPrompts(toolId, input, options);
@@ -338,7 +281,7 @@ app.post('/api/ai/stream', async (req, res) => {
 app.post('/api/ai/generate', async (req, res) => {
   const startTime = Date.now();
   try {
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = getApiKey();
     if (!apiKey) {
       return res.status(503).json({
         error: 'MISSING_API_KEY',
@@ -354,14 +297,7 @@ app.post('/api/ai/generate', async (req, res) => {
       });
     }
 
-    const ai = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build'
-        }
-      }
-    });
+    const ai = createGeminiClient(apiKey);
 
     const speedMode: 'turbo' | 'precision' = options.speedMode || 'turbo';
     const { systemInstruction, userPrompt } = buildAiPrompts(toolId, input, options);

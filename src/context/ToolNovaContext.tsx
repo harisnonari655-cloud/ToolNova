@@ -70,8 +70,9 @@ export const ToolNovaProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const checkServerStatus = async () => {
     try {
-      const res = await fetch('/api/status');
-      if (res.ok) {
+      const res = await fetch('/api/status', { cache: 'no-store' });
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
         const data = await res.json();
         setHasGeminiKey(Boolean(data.hasGeminiKey));
       } else {

@@ -15,7 +15,8 @@ export const AiWritingTool: React.FC<AiWritingToolProps> = ({
   defaultPlaceholder,
   defaultSample
 }) => {
-  const { showToast, hasGeminiKey, incrementAiUsage } = useToolNova();
+  const { showToast, hasGeminiKey, checkServerStatus, incrementAiUsage } = useToolNova();
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
   const [input, setInput] = useState('');
   const [output, setOutput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -180,12 +181,13 @@ export const AiWritingTool: React.FC<AiWritingToolProps> = ({
           showToast('Request timed out', 'error');
         }
       } else {
-        console.error(err);
-        setErrorMessage('Could not complete generation. Retrying with Turbo Fast Mode...');
+        console.error('AI streaming error:', err);
+        setErrorMessage('Could not complete real-time stream. Attempting standard mode...');
         try {
           await handleFallbackGenerate();
-        } catch {
-          setErrorMessage('Could not connect to the ToolNova AI processing endpoint.');
+        } catch (fallbackErr: any) {
+          console.error('AI fallback error:', fallbackErr);
+          setErrorMessage(fallbackErr?.message || 'Could not connect to the ToolNova AI processing endpoint.');
           showToast('Generation error', 'error');
         }
       }
@@ -216,8 +218,14 @@ export const AiWritingTool: React.FC<AiWritingToolProps> = ({
       })
     });
 
-    const data = await res.json();
-    if (data.success && data.result) {
+    let data: any = {};
+    try {
+      data = await res.json();
+    } catch {
+      throw new Error(`Server returned HTTP ${res.status}: Unable to parse response.`);
+    }
+
+    if (res.ok && data.success && data.result) {
       setOutput(data.result);
       setLastStats({
         characters: data.result.length,
@@ -229,7 +237,7 @@ export const AiWritingTool: React.FC<AiWritingToolProps> = ({
       setErrorMessage(null);
       showToast(`Generated in ${((data.latencyMs || 2000) / 1000).toFixed(1)}s!`, 'success');
     } else {
-      setErrorMessage(data.message || 'Generation failed.');
+      setErrorMessage(data.message || `Generation failed (${data.error || res.statusText}).`);
     }
   };
 
@@ -271,9 +279,25 @@ export const AiWritingTool: React.FC<AiWritingToolProps> = ({
         <div className="p-4 rounded-xl bg-amber-950/40 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
           <div className="flex-1">
-            <strong className="block text-amber-300 font-semibold mb-0.5">
-              Live AI Service Status: API Key Required
-            </strong>
+            <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
+              <strong className="text-amber-300 font-semibold">
+                Live AI Service Status: API Key Required
+              </strong>
+              <button
+                type="button"
+                onClick={async () => {
+                  setIsCheckingStatus(true);
+                  await checkServerStatus();
+                  setIsCheckingStatus(false);
+                  showToast('Checked server status', 'info');
+                }}
+                disabled={isCheckingStatus}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 font-medium transition-colors text-[11px] disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3 h-3 ${isCheckingStatus ? 'animate-spin' : ''}`} />
+                {isCheckingStatus ? 'Checking...' : 'Re-check Status'}
+              </button>
+            </div>
             <p className="text-amber-200/90 leading-relaxed">
               AI Writing tools execute securely on the server via the Google Gemini API. To enable live generation, add <code className="px-1.5 py-0.5 rounded bg-slate-900 font-mono text-amber-300">GEMINI_API_KEY</code> in your environment variables. No fake or canned AI text will be presented.
             </p>
